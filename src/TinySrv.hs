@@ -16,14 +16,14 @@ import Network (withSocketsDo, listenOn, PortID(PortNumber), accept)
 import System.IO (hClose, Handle, hIsEOF)
 
 import Control.Concurrent
-
 import Control.Monad (forever)
 
-serve ∷ ℤ → [Route Response] → IO ()
+-- | Start the server on the given port
+serve ∷ Integer → [Route Response] → IO ()
 serve p rs = withSocketsDo $ do 
     sock ← listenOn ∘ PortNumber $ fromIntegral p
     forever $ do
-        (h,hn,_) ← accept sock
+        (h, _, _) ← accept sock
         forkIO $ respond h rs --TODO make a more efficient system
 
 respond ∷ Handle → [Route Response] → IO ()
@@ -44,7 +44,7 @@ respond h rs = do
             | otherwise = BadHeader
             where
                 hf = B.takeWhile (≠ ':') s
-        --Take untill empty line or EOF, returns lines in reverse order, since order doesn't matter for headers
+        --Take until empty line or EOF, returns lines in reverse order, since order doesn't matter for headers
         getHeaders ∷ [B.ByteString] → IO [B.ByteString]
         getHeaders hs = do
             eof ← hIsEOF h
@@ -56,6 +56,7 @@ respond h rs = do
             else
                 return hs
 
+--Send response and headers
 executeResponse ∷ Handle → Response → [Header] → IO ()
 executeResponse h (Response c b) hs = do
     B.hPut h "HTTP/1.1 "
@@ -68,6 +69,7 @@ executeResponse h (Response c b) hs = do
     B.hPut h b
     hClose h
 
+--Parse the top line of the HTTP request
 parseRequest ∷ B.ByteString → Request
 parseRequest s
     | isValidMethod method ∧ B.head path ≡ '/' = Request method file args undefined

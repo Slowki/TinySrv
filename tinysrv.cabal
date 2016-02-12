@@ -47,17 +47,25 @@ cabal-version:       >=1.10
 
 
 library
-  -- Modules exported by the library.
-  -- exposed-modules:     
+  exposed-modules:     
+    TinySrv
   
   -- Modules included in this library but not exported.
-  -- other-modules:       
-  
+  other-modules:
+    TinySrv.ResponseCodes
+    TinySrv.Monad
+
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    
   
   -- Other library packages from which modules are imported.
   build-depends:       base >=4.8 && <4.9
+                     , bytestring
+                     , mtl
+                     , network
+                     , transformers
+                     , containers
+                     , base-unicode-symbols
   
   -- Directories containing source files.
   hs-source-dirs:      src

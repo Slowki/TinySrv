@@ -50,6 +50,7 @@ codes = M.fromList [
     , (505, " HTTP Version not supported")
     ]
 
+-- | Returns the associated message string for given HTTP response code
 lookupCode ∷ Int → B.ByteString
 lookupCode k =
     case M.lookup k codes of
