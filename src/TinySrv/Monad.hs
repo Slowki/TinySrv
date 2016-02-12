@@ -5,7 +5,9 @@ module TinySrv.Monad (
     , Header(..)
     , Response(..)
     , okay
+    , okayL
     , notFound
+    , notFoundL
     --, serveFile
     , header
     , contentType
@@ -23,7 +25,8 @@ import Prelude.Unicode
 
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
-import qualified Data.ByteString.Char8 as B (ByteString, pack, concat, readFile)
+import qualified Data.ByteString.Char8 as B (ByteString, pack)
+import qualified Data.ByteString.Lazy.Char8 as BL (ByteString, pack, readFile)
 import Control.Monad (msum)
 import Data.List (null)
 
@@ -49,7 +52,8 @@ data Request = Request {
     } | BadRequest
     deriving Show
 
-data Response = Response {-# UNPACK #-} !Int B.ByteString
+data Response = Response {-# UNPACK #-} !Int {-# UNPACK #-} !B.ByteString
+              | ResponseL {-# UNPACK #-} !Int {-# UNPACK #-} !BL.ByteString
     deriving Show
 
 -- Response functions --
@@ -59,6 +63,12 @@ data Response = Response {-# UNPACK #-} !Int B.ByteString
 -- > serve 80 [emptyPath >> contentType "text/html" >> okay "Some response"]
 okay ∷ B.ByteString → Route Response
 okay = return ∘ Response 200
+{-# INLINE okay #-}
+
+-- | Returns HTTP 200 response with a lazy 'BL.ByteString'
+okayL ∷ BL.ByteString → Route Response
+okayL = return ∘ ResponseL 200
+{-# INLINE okayL #-}
 
 -- | Returns HTTP 404 response
 --
@@ -68,6 +78,12 @@ okay = return ∘ Response 200
 -- > ]
 notFound ∷ B.ByteString → Route Response
 notFound = return ∘ Response 404
+{-# INLINE notFound #-}
+
+-- | Returns HTTP 404 response with a lazy 'BL.ByteString'
+notFoundL ∷ BL.ByteString → Route Response
+notFoundL = return ∘ ResponseL 404
+{-# INLINE notFoundL #-}
 
 -- Route functions --
 
@@ -80,6 +96,7 @@ header n v = do
 -- | Sets Content-Type response header
 contentType ∷ B.ByteString → Route ()
 contentType = header $ B.pack "Content-Type"
+{-# INLINE contentType #-}
 
 -- | Returns path stack
 pathList ∷ Route [B.ByteString]
@@ -104,6 +121,7 @@ emptyPath = lift get >>= guard ∘ null ∘ reqPath ∘ fst
 -- | Returns the request headers
 headerList ∷ Route [Header]
 headerList = reqHeaders ∘ fst <$> lift get
+{-# INLINE headerList #-}
 
 -- | Return the value of the request header that matches the given name or 'Nothing' if the header isn't present
 getHeader ∷ B.ByteString → Route (Maybe B.ByteString)
@@ -115,9 +133,7 @@ getHeader n = do
 
 -- | Checks that the value of the Host header matches the given hostname
 host ∷ B.ByteString → Route ()
-host h = do
-    h' ← getHeader $ B.pack "Host"
-    guard (h' ≡ Just h)
+host h = (getHeader $ B.pack "Host") >>= guard ∘ (≡) (Just h)
 
 runRoutes ∷ [Route Response] → (Request, [Header]) → IO (Maybe (Response, [Header]))
 runRoutes rs s = do

@@ -52,7 +52,5 @@ codes = M.fromList [
 
 -- | Returns the associated message string for given HTTP response code
 lookupCode ∷ Int → B.ByteString
-lookupCode k =
-    case M.lookup k codes of
-        Just x → x
-        Nothing → B.empty
+lookupCode k = M.findWithDefault B.empty k codes
+{-# INLINE lookupCode #-}
