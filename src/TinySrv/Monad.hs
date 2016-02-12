@@ -12,6 +12,7 @@ module TinySrv.Monad (
     , header
     , contentType
     , pathList
+    , fullPath
     , path
     , popPath
     , emptyPath
@@ -25,8 +26,8 @@ import Prelude.Unicode
 
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
-import qualified Data.ByteString.Char8 as B (ByteString, pack)
-import qualified Data.ByteString.Lazy.Char8 as BL (ByteString, pack, readFile)
+import qualified Data.ByteString.Char8 as B (ByteString, pack, split, concat)
+import qualified Data.ByteString.Lazy.Char8 as BL (ByteString, readFile)
 import Control.Monad (msum)
 import Data.List (null)
 
@@ -85,13 +86,16 @@ notFoundL ∷ BL.ByteString → Route Response
 notFoundL = return ∘ ResponseL 404
 {-# INLINE notFoundL #-}
 
+-- | Returns HTTP 404 response with a lazy 'BL.ByteString'
+serveFile ∷ BL.ByteString → Route Response
+serveFile = return ∘ ResponseL 404
+
 -- Route functions --
 
 -- | Sets response header
 header ∷ B.ByteString → B.ByteString → Route ()
-header n v = do
-    (r, hs) ← lift get
-    lift $ put (r, Header n v : filter (\(Header k _) → k ≠ n) hs)
+header n v = lift $ modify (\(r, hs) → (r, Header n v : filter (\(Header k _) → k ≠ n) hs))
+{-# INLINE header #-}
 
 -- | Sets Content-Type response header
 contentType ∷ B.ByteString → Route ()
@@ -102,9 +106,14 @@ contentType = header $ B.pack "Content-Type"
 pathList ∷ Route [B.ByteString]
 pathList = lift get >>= return ∘ reqPath ∘ fst
 
+-- | Returns path stack
+fullPath ∷ B.ByteString → Route ()
+fullPath p = pathList >>= guard ∘ (≡) p ∘ B.concat ∘ concatMap (\x → [B.pack "/", x])
+
 -- | Removes the top element from the path stack and checks that it matches the input
 path ∷ B.ByteString → Route ()
 path s = popPath >>= guard ∘ (≡) s
+{-# INLINE path #-}
 
 -- | Pops the top element off the path stack
 popPath ∷ Route B.ByteString
@@ -117,6 +126,7 @@ popPath = do
 -- | Checks that the path stack is empty
 emptyPath ∷ Route ()
 emptyPath = lift get >>= guard ∘ null ∘ reqPath ∘ fst
+{-# INLINE emptyPath #-}
 
 -- | Returns the request headers
 headerList ∷ Route [Header]

@@ -16,7 +16,7 @@ import qualified Data.ByteString.Lazy.Char8 as BL
 import Network (withSocketsDo, listenOn, PortID(PortNumber), accept)
 import System.IO (hClose, Handle, hIsEOF)
 
-import Control.Concurrent
+import Control.Concurrent (forkIO)
 import Control.Monad (forever)
 
 -- | Start the server on the given port
