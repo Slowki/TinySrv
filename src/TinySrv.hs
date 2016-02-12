@@ -33,7 +33,8 @@ respond h rs = do
         BadRequest → executeResponse h (Response 400 "<h1>Bad Request</h1>") []
         otherwise → do
             hs ← filter (≠ BadHeader) ∘ map parseHeader <$> getHeaders []
-            case runRoutes rs (r{reqHeaders=hs}, []) of
+            r ← runRoutes rs (r{reqHeaders=hs}, [])
+            case r of
                 Just (rsp, hdrs) → executeResponse h rsp hdrs
                 Nothing → executeResponse h (Response 404 "<h1>Not Found</h1>") []
     where

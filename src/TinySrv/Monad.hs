@@ -6,6 +6,7 @@ module TinySrv.Monad (
     , Response(..)
     , okay
     , notFound
+    --, serveFile
     , header
     , contentType
     , pathList
@@ -22,33 +23,33 @@ import Prelude.Unicode
 
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
-import Data.ByteString.Char8 (ByteString, pack)
+import qualified Data.ByteString.Char8 as B (ByteString, pack, concat, readFile)
 import Control.Monad (msum)
 import Data.List (null)
 
-type MaybeState s a = MaybeT (State s) a
+type MaybeState s a = MaybeT (StateT s IO) a
 
-runMaybeState ∷ MaybeState s a → s → Maybe (a, s)
-runMaybeState m s =
-    let (v, st) = flip runState s $ runMaybeT m in
+runMaybeState ∷ MaybeState s a → s → IO (Maybe (a, s))
+runMaybeState m s = do
+    (v, st) ← flip runStateT s $ runMaybeT m
     case v of
-        Just x → Just (x, st)
-        Nothing → Nothing
+        Just x → return $ Just (x, st)
+        Nothing → return $ Nothing
 
 type Route a = MaybeState (Request, [Header]) a
 
-data Header = Header ByteString ByteString | BadHeader
+data Header = Header B.ByteString B.ByteString | BadHeader
     deriving (Show, Eq)
 
 data Request = Request {
-        reqMethod ∷ ByteString
-      , reqPath ∷ [ByteString]
-      , reqArgs ∷ [(ByteString, ByteString)]
+        reqMethod ∷ B.ByteString
+      , reqPath ∷ [B.ByteString]
+      , reqArgs ∷ [(B.ByteString, B.ByteString)]
       , reqHeaders ∷ [Header]
     } | BadRequest
     deriving Show
 
-data Response = Response {-# UNPACK #-} !Int ByteString
+data Response = Response {-# UNPACK #-} !Int B.ByteString
     deriving Show
 
 -- Response functions --
@@ -56,7 +57,7 @@ data Response = Response {-# UNPACK #-} !Int ByteString
 -- | Returns HTTP 200 response
 --
 -- > serve 80 [emptyPath >> contentType "text/html" >> okay "Some response"]
-okay ∷ ByteString → Route Response
+okay ∷ B.ByteString → Route Response
 okay = return ∘ Response 200
 
 -- | Returns HTTP 404 response
@@ -65,31 +66,31 @@ okay = return ∘ Response 200
 -- >    emptyPath >> contentType "text/html" >> okay "Some response",
 -- >    contentType "text/html" >> notFound "<h3>404 Not Found</h3>"
 -- > ]
-notFound ∷ ByteString → Route Response
+notFound ∷ B.ByteString → Route Response
 notFound = return ∘ Response 404
 
 -- Route functions --
 
 -- | Sets response header
-header ∷ ByteString → ByteString → Route ()
+header ∷ B.ByteString → B.ByteString → Route ()
 header n v = do
     (r, hs) ← lift get
     lift $ put (r, Header n v : filter (\(Header k _) → k ≠ n) hs)
 
 -- | Sets Content-Type response header
-contentType ∷ ByteString → Route ()
-contentType = header $ pack "Content-Type"
+contentType ∷ B.ByteString → Route ()
+contentType = header $ B.pack "Content-Type"
 
--- | Returns path broken on /
-pathList ∷ Route [ByteString]
+-- | Returns path stack
+pathList ∷ Route [B.ByteString]
 pathList = lift get >>= return ∘ reqPath ∘ fst
 
 -- | Removes the top element from the path stack and checks that it matches the input
-path ∷ ByteString → Route ()
+path ∷ B.ByteString → Route ()
 path s = popPath >>= guard ∘ (≡) s
 
 -- | Pops the top element off the path stack
-popPath ∷ Route ByteString
+popPath ∷ Route B.ByteString
 popPath = do
     (r, rhs) ← lift get
     guard ∘ not ∘ null $ reqPath r
@@ -105,7 +106,7 @@ headerList ∷ Route [Header]
 headerList = reqHeaders ∘ fst <$> lift get
 
 -- | Return the value of the request header that matches the given name or 'Nothing' if the header isn't present
-getHeader ∷ ByteString → Route (Maybe ByteString)
+getHeader ∷ B.ByteString → Route (Maybe B.ByteString)
 getHeader n = do
     hs ← headerList
     case filter (\(Header k _) → k ≡ n) hs of
@@ -113,10 +114,14 @@ getHeader n = do
         _ → return Nothing
 
 -- | Checks that the value of the Host header matches the given hostname
-host ∷ ByteString → Route ()
+host ∷ B.ByteString → Route ()
 host h = do
-    h' ← getHeader $ pack "Host"
+    h' ← getHeader $ B.pack "Host"
     guard (h' ≡ Just h)
 
-runRoutes ∷ [Route Response] → (Request, [Header]) → Maybe (Response, [Header])
-runRoutes rs s = (\(r, (_, hs)) → (r, hs)) <$> (msum $ map (flip runMaybeState s) rs)
+runRoutes ∷ [Route Response] → (Request, [Header]) → IO (Maybe (Response, [Header]))
+runRoutes rs s = do
+    v ← mapM (flip runMaybeState s) rs >>= return ∘ msum
+    case v of
+        Just (r, (_, hs)) → return $ Just (r, hs)
+        Nothing → return Nothing
