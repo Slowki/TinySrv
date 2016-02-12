@@ -48,7 +48,7 @@ data Request = Request {
     } | BadRequest
     deriving Show
 
-data Response = Response Int ByteString
+data Response = Response {-# UNPACK #-} !Int ByteString
     deriving Show
 
 -- Response functions --
