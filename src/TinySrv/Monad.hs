@@ -60,7 +60,7 @@ data Request = Request {
     deriving Show
 
 data Response = Response {-# UNPACK #-} !Int {-# UNPACK #-} !B.ByteString
-              | ResponseL {-# UNPACK #-} !Int {-# UNPACK #-} !BL.ByteString
+              | ResponseL {-# UNPACK #-} !Int BL.ByteString
     deriving Show
 
 -- Response functions --
