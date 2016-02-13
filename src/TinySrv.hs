@@ -19,14 +19,17 @@ import System.IO (hClose, hFlush, Handle, hIsEOF)
 import Control.Concurrent (forkIO)
 import Control.Monad (forever)
 
--- | Start the server on the given port
-serve ∷ Integer → [Route Response] → IO ()
+-- | Start the server
+serve ∷ Integer -- ^ Port
+      → [Route Response] -- ^ Routes
+      → IO ()
 serve p rs = withSocketsDo $ do 
     sock ← listenOn ∘ PortNumber $ fromIntegral p
     forever $ do
         (h, _, _) ← accept sock
         forkIO $ respond h rs --TODO make a more efficient system
 
+--Handle incoming request
 respond ∷ Handle → [Route Response] → IO ()
 respond h rs = do
     r ← parseRequest <$> B.hGetLine h --TODO handle bad request
