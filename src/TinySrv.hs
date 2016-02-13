@@ -57,7 +57,7 @@ respond h rs = do
                 l ← B.hGetLine h
                 case l of
                     "\r" → return hs
-                    _  → getHeaders $ (B.init l):hs
+                    _  → getHeaders $ B.init l : hs
             else
                 return hs
 
@@ -72,7 +72,7 @@ executeResponse h r hs = do
     B.hPut h $ lookupCode c
     B.hPut h "\r\n"
     B.hPut h $ B.concat ["Content-Length: ", B.pack bl, "\r\n"]
-    mapM_ (B.hPut h) $ map (\(Header n v) → B.concat [n, ": ", v, "\r\n"]) hs
+    mapM_ (B.hPut h ∘ (\(Header n v) → B.concat [n, ": ", v, "\r\n"])) hs
     B.hPut h "\r\n"
     hFlush h
     case r of
@@ -101,9 +101,9 @@ parseRequest s
         (file, args) = processArgs (B.split '?' path)
         
         makeTuple ∷ [B.ByteString] → (B.ByteString, B.ByteString)
-        makeTuple (x:[]) = (x, B.empty)
-        makeTuple (x:y:[]) = (x, y)
+        makeTuple [x]    = (x, B.empty)
+        makeTuple [x, y] = (x, y)
 
         processArgs ∷ [B.ByteString] → ([B.ByteString], [(B.ByteString, B.ByteString)])
-        processArgs (f:[]) = (filter (≠ B.empty) $ B.split '/' f, [])
-        processArgs (f:as:[]) = (filter (≠ B.empty) $ B.split '/' f, map (makeTuple ∘ B.split '=') $ B.split '&' as)
+        processArgs [f]     = (filter (≠ B.empty) $ B.split '/' f, [])
+        processArgs [f, as] = (filter (≠ B.empty) $ B.split '/' f, map (makeTuple ∘ B.split '=') $ B.split '&' as)

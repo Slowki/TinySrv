@@ -44,7 +44,7 @@ runMaybeState m s = do
     (v, st) ← flip runStateT s $ runMaybeT m
     case v of
         Just x → return $ Just (x, st)
-        Nothing → return $ Nothing
+        Nothing → return Nothing
 
 type Route a = MaybeState (Request, [Header]) a
 
@@ -173,7 +173,7 @@ emptyPath = lift get >>= guard ∘ null ∘ reqPath ∘ fst
 -- | Hostname guard
 host ∷ B.ByteString -- ^ Hostname
      → Route ()
-host h = (getHeader "Host") >>= guard ∘ (≡) (Just h)
+host h = getHeader "Host" >>= guard ∘ (≡) (Just h)
 
 -- | Serve a file
 serveFile ∷ FilePath -- ^ Path to file
@@ -198,12 +198,12 @@ serveDirectory l d p = do
         else do
             cs ← filter (≠ ".") <$> liftIO (getDirectoryContents p')
             okay $ B.concat ["<html><head><title>Index of ", urlP, "</title></head><body><h2>Index of "
-                            , urlP, "</h2><hr>", B.concat ∘ map B.pack $ concatMap (\x → (["<a href=\"", x, "\">", x, "</a><br>"])) cs
+                            , urlP, "</h2><hr>", B.concat ∘ map B.pack $ (\x → ["<a href=\"", x, "\">", x, "</a><br>"]) =<< cs
                             , "</body></html>"]
 
 runRoutes ∷ [Route Response] → (Request, [Header]) → IO (Maybe (Response, [Header]))
 runRoutes rs s = do
-    v ← mapM (flip runMaybeState s) rs >>= return ∘ msum
+    v ← mapM (`runMaybeState` s) rs >>= return ∘ msum
     case v of
         Just (r, (_, hs)) → return $ Just (r, hs)
         Nothing → return Nothing
