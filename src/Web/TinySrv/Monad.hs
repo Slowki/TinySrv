@@ -1,5 +1,5 @@
 {-# LANGUAGE UnicodeSyntax, OverloadedStrings #-}
-module TinySrv.Monad (
+module Web.TinySrv.Monad (
       Route
     , Request(..)
     , Header(..)

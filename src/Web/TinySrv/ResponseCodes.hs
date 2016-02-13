@@ -1,5 +1,5 @@
 {-# LANGUAGE UnicodeSyntax, OverloadedStrings #-}
-module TinySrv.ResponseCodes (lookupCode) where
+module Web.TinySrv.ResponseCodes (lookupCode) where
 
 import qualified Data.Map.Strict as M
 import qualified Data.ByteString.Char8 as B (empty, ByteString)

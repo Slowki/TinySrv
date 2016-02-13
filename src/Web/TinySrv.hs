@@ -1,13 +1,13 @@
 {-# LANGUAGE UnicodeSyntax, OverloadedStrings #-}
-module TinySrv (
+module Web.TinySrv (
     serve
-  , module TinySrv.Monad
+  , module Web.TinySrv.Monad
 ) where
 
 import Prelude.Unicode
 
-import TinySrv.Monad
-import TinySrv.ResponseCodes
+import Web.TinySrv.Monad
+import Web.TinySrv.ResponseCodes
 
 import Data.List
 import qualified Data.ByteString.Char8 as B
@@ -18,6 +18,9 @@ import System.IO (hClose, hFlush, Handle, hIsEOF)
 
 import Control.Concurrent (forkIO)
 import Control.Monad (forever)
+
+import Data.Time.Clock
+import Data.Time.Format
 
 -- | Start the server
 serve ∷ Integer -- ^ Port
@@ -71,14 +74,20 @@ executeResponse h r hs = do
     B.hPut h (B.pack $ show c)
     B.hPut h $ lookupCode c
     B.hPut h "\r\n"
-    B.hPut h $ B.concat ["Content-Length: ", B.pack bl, "\r\n"]
+    t ← B.pack ∘ formatTime defaultTimeLocale rfc822DateFormat <$> getCurrentTime
+    ifNotHeader "Date" ∘ B.hPut h $ B.concat ["Date: ", t ,"\r\n"]
+    ifNotHeader "Server" $ B.hPut h "Server: tinysrv\r\n"
+    ifNotHeader "Content-Length" ∘ B.hPut h $ B.concat ["Content-Length: ", B.pack bl, "\r\n"]
     mapM_ (B.hPut h ∘ (\(Header n v) → B.concat [n, ": ", v, "\r\n"])) hs
     B.hPut h "\r\n"
-    hFlush h
     case r of
         Response _ b → B.hPut h b
         ResponseL _ b → BL.hPut h b
+    hFlush h
     hClose h
+    where
+        ifNotHeader ∷ B.ByteString → IO () → IO ()
+        ifNotHeader n i = if null $ filter (\(Header n' _) → n' ≡ n) hs then i else return ()
 
 --Parse the top line of the HTTP request
 parseRequest ∷ B.ByteString → Request
