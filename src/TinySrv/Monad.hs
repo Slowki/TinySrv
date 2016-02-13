@@ -48,7 +48,7 @@ runMaybeState m s = do
 
 type Route a = MaybeState (Request, [Header]) a
 
-data Header = Header B.ByteString B.ByteString | BadHeader
+data Header = Header {-# UNPACK #-} !B.ByteString {-# UNPACK #-} !B.ByteString | BadHeader
     deriving (Show, Eq)
 
 data Request = Request {
