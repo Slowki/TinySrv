@@ -1,4 +1,4 @@
-{-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE UnicodeSyntax, OverloadedStrings #-}
 module TinySrv.Monad (
       Route
     , Request(..)
@@ -8,10 +8,11 @@ module TinySrv.Monad (
     , okayL
     , notFound
     , notFoundL
-    --, serveFile
     , header
     , contentType
     , pathList
+    , pathString
+    , partialPath
     , fullPath
     , path
     , popPath
@@ -19,6 +20,8 @@ module TinySrv.Monad (
     , headerList
     , getHeader
     , host
+    , serveFile
+    , serveDirectory
     , runRoutes
 ) where
 
@@ -26,10 +29,13 @@ import Prelude.Unicode
 
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
-import qualified Data.ByteString.Char8 as B (ByteString, pack, split, concat)
-import qualified Data.ByteString.Lazy.Char8 as BL (ByteString, readFile)
 import Control.Monad (msum)
-import Data.List (null)
+
+import qualified Data.ByteString.Char8 as B (ByteString, pack, unpack, singleton, empty, split, concat)
+import qualified Data.ByteString.Lazy.Char8 as BL (ByteString, readFile)
+import Data.List (null, dropWhileEnd)
+
+import System.Directory
 
 type MaybeState s a = MaybeT (StateT s IO) a
 
@@ -86,10 +92,6 @@ notFoundL ∷ BL.ByteString → Route Response
 notFoundL = return ∘ ResponseL 404
 {-# INLINE notFoundL #-}
 
--- | Returns HTTP 404 response with a lazy 'BL.ByteString'
-serveFile ∷ BL.ByteString → Route Response
-serveFile = return ∘ ResponseL 404
-
 -- Route functions --
 
 -- | Sets response header
@@ -99,16 +101,30 @@ header n v = lift $ modify (\(r, hs) → (r, Header n v : filter (\(Header k _) 
 
 -- | Sets Content-Type response header
 contentType ∷ B.ByteString → Route ()
-contentType = header $ B.pack "Content-Type"
+contentType = header "Content-Type"
 {-# INLINE contentType #-}
 
 -- | Returns path stack
 pathList ∷ Route [B.ByteString]
 pathList = lift get >>= return ∘ reqPath ∘ fst
 
--- | Returns path stack
+-- | Returns path stack as a string joined with '/'
+pathString ∷ Route B.ByteString
+pathString = lift get >>= return ∘ B.concat ∘ concatMap (\x → [B.singleton '/', x]) ∘ reqPath ∘ fst
+    where
+        addSlashToEmpty x | x ≡ B.empty = B.singleton '/'
+                          | otherwise   = x
+
+-- | Checks that the top elements of the stack path match the input, and removes them
+--
+-- > serve 80 [partialPath "/abc/123/" >> pathString >>= okay]
+partialPath ∷ B.ByteString → Route ()
+partialPath p = foldl (>>) (return ()) $ map path (filter (≠ B.empty) $ B.split '/' p)
+
+-- | Checks that the full path matches the given input
 fullPath ∷ B.ByteString → Route ()
-fullPath p = pathList >>= guard ∘ (≡) p ∘ B.concat ∘ concatMap (\x → [B.pack "/", x])
+fullPath p = partialPath p >> emptyPath
+{-# INLINE fullPath #-}
 
 -- | Removes the top element from the path stack and checks that it matches the input
 path ∷ B.ByteString → Route ()
@@ -143,7 +159,32 @@ getHeader n = do
 
 -- | Checks that the value of the Host header matches the given hostname
 host ∷ B.ByteString → Route ()
-host h = (getHeader $ B.pack "Host") >>= guard ∘ (≡) (Just h)
+host h = (getHeader "Host") >>= guard ∘ (≡) (Just h)
+
+-- | Serves the given file at the given location, read as a lazy 'BL.ByteString'
+serveFile ∷ FilePath → B.ByteString → Route Response
+serveFile f p = fullPath p >> liftIO (BL.readFile f) >>= okayL
+
+-- | Serves the given directory at the given location
+--
+-- > serve 80 [serveDirectory True "/srv/http" "/", notFound "404 not found"] --With file index
+--
+-- > serve 80 [serveDirectory False "/srv/http" "/", notFound "404 not found"] --Without file index
+serveDirectory ∷ Bool → FilePath → B.ByteString → Route Response
+serveDirectory l d p = do
+    partialPath p
+    urlP ← pathString
+    let p' = dropWhileEnd (≡ '/') d ++ B.unpack urlP
+    fe ← liftIO $ doesFileExist p'
+    de ← liftIO $ doesDirectoryExist p'
+    guard (fe ∨ de ∧ l)
+    if fe
+        then liftIO (BL.readFile p') >>= okayL
+        else do
+            cs ← filter (≠ ".") <$> liftIO (getDirectoryContents p')
+            okay $ B.concat ["<html><head><title>Index of ", urlP, "</title></head><body><h2>Index of "
+                            , urlP, "</h2><hr>", B.concat ∘ map B.pack $ concatMap (\x → (["<a href=\"", x, "\">", x, "</a><br>"])) cs
+                            , "</body></html>"]
 
 runRoutes ∷ [Route Response] → (Request, [Header]) → IO (Maybe (Response, [Header]))
 runRoutes rs s = do

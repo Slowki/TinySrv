@@ -14,7 +14,7 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
 
 import Network (withSocketsDo, listenOn, PortID(PortNumber), accept)
-import System.IO (hClose, Handle, hIsEOF)
+import System.IO (hClose, hFlush, Handle, hIsEOF)
 
 import Control.Concurrent (forkIO)
 import Control.Monad (forever)
@@ -71,6 +71,7 @@ executeResponse h r hs = do
     B.hPut h $ B.concat ["Content-Length: ", B.pack bl, "\r\n"]
     mapM_ (B.hPut h) $ map (\(Header n v) → B.concat [n, ": ", v, "\r\n"]) hs
     B.hPut h "\r\n"
+    hFlush h
     case r of
         Response _ b → B.hPut h b
         ResponseL _ b → BL.hPut h b

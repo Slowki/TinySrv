@@ -66,6 +66,7 @@ library
                      , transformers
                      , containers
                      , base-unicode-symbols
+                     , directory
   
   -- Directories containing source files.
   hs-source-dirs:      src
