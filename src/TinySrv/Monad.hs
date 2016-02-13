@@ -68,38 +68,59 @@ data Response = Response {-# UNPACK #-} !Int {-# UNPACK #-} !B.ByteString
 -- | Returns HTTP 200 response
 --
 -- > serve 80 [emptyPath >> contentType "text/html" >> okay "Some response"]
-okay ∷ B.ByteString → Route Response
+okay ∷ B.ByteString -- ^ Response body
+     → Route Response
 okay = return ∘ Response 200
 {-# INLINE okay #-}
 
 -- | Returns HTTP 200 response with a lazy 'BL.ByteString'
-okayL ∷ BL.ByteString → Route Response
+okayL ∷ BL.ByteString -- ^ Response body
+      → Route Response
 okayL = return ∘ ResponseL 200
 {-# INLINE okayL #-}
 
 -- | Returns HTTP 404 response
 --
--- > serve 80 [
--- >    emptyPath >> contentType "text/html" >> okay "Some response",
--- >    contentType "text/html" >> notFound "<h3>404 Not Found</h3>"
--- > ]
-notFound ∷ B.ByteString → Route Response
+-- > serve 80 [ emptyPath >> contentType "text/html" >> okay "Some response"
+-- >          , contentType "text/html" >> notFound "<h3>404 Not Found</h3>"
+-- >          ]
+notFound ∷ B.ByteString -- ^ Response body
+         → Route Response
 notFound = return ∘ Response 404
 {-# INLINE notFound #-}
 
 -- | Returns HTTP 404 response with a lazy 'BL.ByteString'
-notFoundL ∷ BL.ByteString → Route Response
+notFoundL ∷ BL.ByteString -- ^ Response body
+          → Route Response
 notFoundL = return ∘ ResponseL 404
 {-# INLINE notFoundL #-}
 
 -- Route functions --
 
--- | Sets response header
-header ∷ B.ByteString → B.ByteString → Route ()
+-- | Returns the request headers
+headerList ∷ Route [Header]
+headerList = reqHeaders ∘ fst <$> lift get
+{-# INLINE headerList #-}
+
+-- | Return the value of the request header if present, or 'Nothing' if not
+getHeader ∷ B.ByteString -- ^ Header name
+          → Route (Maybe B.ByteString) -- ^ Header value
+getHeader n = do
+    hs ← headerList
+    case filter (\(Header k _) → k ≡ n) hs of
+        (Header _ v:xs) → return $ Just v
+        _ → return Nothing
+
+-- | Set response header
+header ∷ B.ByteString -- ^ Header name
+       → B.ByteString -- ^ Header value
+       → Route ()
 header n v = lift $ modify (\(r, hs) → (r, Header n v : filter (\(Header k _) → k ≠ n) hs))
 {-# INLINE header #-}
 
--- | Sets Content-Type response header
+-- | Set Content-Type header
+--
+-- > serve 80 [contentType "application/json" >> okay "{\"a\":1}"]
 contentType ∷ B.ByteString → Route ()
 contentType = header "Content-Type"
 {-# INLINE contentType #-}
@@ -108,7 +129,7 @@ contentType = header "Content-Type"
 pathList ∷ Route [B.ByteString]
 pathList = lift get >>= return ∘ reqPath ∘ fst
 
--- | Returns path stack as a string joined with '/'
+-- | Returns path stack as a string joined with \'/\'
 pathString ∷ Route B.ByteString
 pathString = lift get >>= return ∘ B.concat ∘ concatMap (\x → [B.singleton '/', x]) ∘ reqPath ∘ fst
     where
@@ -121,12 +142,17 @@ pathString = lift get >>= return ∘ B.concat ∘ concatMap (\x → [B.singleton
 partialPath ∷ B.ByteString → Route ()
 partialPath p = foldl (>>) (return ()) $ map path (filter (≠ B.empty) $ B.split '/' p)
 
--- | Checks that the full path matches the given input
+-- | Check that the request path matches the input
 fullPath ∷ B.ByteString → Route ()
 fullPath p = partialPath p >> emptyPath
 {-# INLINE fullPath #-}
 
--- | Removes the top element from the path stack and checks that it matches the input
+-- | Pop the top element from the path stack and check that it matches the input
+--
+-- > serve 80 [ emptyPath >> okay "This is /"
+-- >          , path "abc" >> emptyPath >> okay "This is /abc"
+-- >          , path "abc" >> path "123" >> emptyPath >> okay "This is /abc/123"
+-- >          ]
 path ∷ B.ByteString → Route ()
 path s = popPath >>= guard ∘ (≡) s
 {-# INLINE path #-}
@@ -144,33 +170,22 @@ emptyPath ∷ Route ()
 emptyPath = lift get >>= guard ∘ null ∘ reqPath ∘ fst
 {-# INLINE emptyPath #-}
 
--- | Returns the request headers
-headerList ∷ Route [Header]
-headerList = reqHeaders ∘ fst <$> lift get
-{-# INLINE headerList #-}
-
--- | Return the value of the request header that matches the given name or 'Nothing' if the header isn't present
-getHeader ∷ B.ByteString → Route (Maybe B.ByteString)
-getHeader n = do
-    hs ← headerList
-    case filter (\(Header k _) → k ≡ n) hs of
-        (Header _ v:xs) → return $ Just v
-        _ → return Nothing
-
--- | Checks that the value of the Host header matches the given hostname
-host ∷ B.ByteString → Route ()
+-- | Hostname guard
+host ∷ B.ByteString -- ^ Hostname
+     → Route ()
 host h = (getHeader "Host") >>= guard ∘ (≡) (Just h)
 
--- | Serves the given file at the given location, read as a lazy 'BL.ByteString'
-serveFile ∷ FilePath → B.ByteString → Route Response
+-- | Serve a file
+serveFile ∷ FilePath -- ^ Path to file
+          → B.ByteString -- ^ Routing path
+          → Route Response
 serveFile f p = fullPath p >> liftIO (BL.readFile f) >>= okayL
 
--- | Serves the given directory at the given location
---
--- > serve 80 [serveDirectory True "/srv/http" "/", notFound "404 not found"] --With file index
---
--- > serve 80 [serveDirectory False "/srv/http" "/", notFound "404 not found"] --Without file index
-serveDirectory ∷ Bool → FilePath → B.ByteString → Route Response
+-- | Serve a directory
+serveDirectory ∷ Bool -- ^ Allow file index
+               → FilePath -- ^ Path to the directory
+               → B.ByteString -- ^ Routing path
+               → Route Response
 serveDirectory l d p = do
     partialPath p
     urlP ← pathString
