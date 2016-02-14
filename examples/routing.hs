@@ -20,10 +20,10 @@ add ∷ Route Response
 add = do
     method "GET"
     path "+"
-    n1 ← read ∘ B.unpack <$> popPath ∷ Route Integer
+    n1 ← read ∘ B.unpack <$> popPath ∷ Route Integer --Zero error checking, hooray.
     n2 ← read ∘ B.unpack <$> popPath ∷ Route Integer
     contentType "text/plain"
-    okay ∘ B.pack ∘ show $ n1 + n2 --Zero error checking, hooray.
+    okay ∘ B.pack ∘ show $ n1 + n2
 
 main ∷ IO ()
 main = serve 80 [
