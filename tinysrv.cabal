@@ -48,12 +48,12 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     
-    TinySrv
+    Web.TinySrv
   
   -- Modules included in this library but not exported.
   other-modules:
-    TinySrv.ResponseCodes
-    TinySrv.Monad
+    Web.TinySrv.ResponseCodes
+    Web.TinySrv.Monad
 
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    
@@ -67,7 +67,7 @@ library
                      , containers
                      , base-unicode-symbols
                      , directory
-  
+                     , time
   -- Directories containing source files.
   hs-source-dirs:      src
   

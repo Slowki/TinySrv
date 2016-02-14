@@ -10,6 +10,7 @@ module Web.TinySrv.Monad (
     , notFoundL
     , header
     , contentType
+    , method
     , pathList
     , pathString
     , partialPath
@@ -99,7 +100,7 @@ notFoundL = return ∘ ResponseL 404
 
 -- | Returns the request headers
 headerList ∷ Route [Header]
-headerList = reqHeaders ∘ fst <$> lift get
+headerList = reqHeaders ∘ fst <$> get
 {-# INLINE headerList #-}
 
 -- | Return the value of the request header if present, or 'Nothing' if not
@@ -115,7 +116,7 @@ getHeader n = do
 header ∷ B.ByteString -- ^ Header name
        → B.ByteString -- ^ Header value
        → Route ()
-header n v = lift $ modify (\(r, hs) → (r, Header n v : filter (\(Header k _) → k ≠ n) hs))
+header n v = modify (\(r, hs) → (r, Header n v : filter (\(Header k _) → k ≠ n) hs))
 {-# INLINE header #-}
 
 -- | Set Content-Type header
@@ -125,13 +126,18 @@ contentType ∷ B.ByteString → Route ()
 contentType = header "Content-Type"
 {-# INLINE contentType #-}
 
+-- | Request method guard
+method ∷ B.ByteString -- ^ HTTP method
+       → Route ()
+method m = get >>= guard ∘ (≡) m ∘ reqMethod ∘ fst
+
 -- | Returns path stack
 pathList ∷ Route [B.ByteString]
-pathList = lift get >>= return ∘ reqPath ∘ fst
+pathList = get >>= return ∘ reqPath ∘ fst
 
 -- | Returns path stack as a string joined with \'/\'
 pathString ∷ Route B.ByteString
-pathString = lift get >>= return ∘ B.concat ∘ concatMap (\x → [B.singleton '/', x]) ∘ reqPath ∘ fst
+pathString = get >>= return ∘ B.concat ∘ concatMap (\x → [B.singleton '/', x]) ∘ reqPath ∘ fst
     where
         addSlashToEmpty x | x ≡ B.empty = B.singleton '/'
                           | otherwise   = x
@@ -154,20 +160,24 @@ fullPath p = partialPath p >> emptyPath
 -- >          , path "abc" >> path "123" >> emptyPath >> okay "This is /abc/123"
 -- >          ]
 path ∷ B.ByteString → Route ()
-path s = popPath >>= guard ∘ (≡) s
+path s = do
+    (r, rhs) ← get
+    guard ∘ not ∘ null $ reqPath r
+    guard $ head (reqPath r) ≡ s
+    put (r{reqPath=tail $ reqPath r}, rhs)
 {-# INLINE path #-}
 
--- | Pops the top element off the path stack
+-- | Pop the top element off the path stack
 popPath ∷ Route B.ByteString
 popPath = do
-    (r, rhs) ← lift get
+    (r, rhs) ← get
     guard ∘ not ∘ null $ reqPath r
-    lift $ put (r{reqPath=tail $ reqPath r}, rhs)
+    put (r{reqPath=tail $ reqPath r}, rhs)
     return ∘ head $ reqPath r 
 
 -- | Checks that the path stack is empty
 emptyPath ∷ Route ()
-emptyPath = lift get >>= guard ∘ null ∘ reqPath ∘ fst
+emptyPath = get >>= guard ∘ null ∘ reqPath ∘ fst
 {-# INLINE emptyPath #-}
 
 -- | Hostname guard
