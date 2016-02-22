@@ -74,7 +74,7 @@ executeResponse h r hs = do
     B.hPut h (B.pack $ show c)
     B.hPut h $ lookupCode c
     B.hPut h "\r\n"
-    t ← B.pack ∘ formatTime defaultTimeLocale rfc822DateFormat <$> getCurrentTime
+    t ← B.pack ∘ flip (++) "GMT"  ∘ dropWhileEnd (≠ ' ') ∘ formatTime defaultTimeLocale rfc822DateFormat <$> getCurrentTime
     ifNotHeader "Date" ∘ B.hPut h $ B.concat ["Date: ", t ,"\r\n"]
     ifNotHeader "Server" $ B.hPut h "Server: tinysrv\r\n"
     ifNotHeader "Content-Length" ∘ B.hPut h $ B.concat ["Content-Length: ", B.pack bl, "\r\n"]

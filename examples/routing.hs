@@ -26,7 +26,7 @@ add = do
     okay ∘ B.pack ∘ show $ n1 + n2
 
 main ∷ IO ()
-main = serve 80 [
+main = serve 31416 [
                   --Serve /srv/http/index.html at HOST/
                   serveFile "/srv/http/index.html" "/"
                   --GET to HOST/somedata.json
