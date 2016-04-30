@@ -13,7 +13,7 @@ somedir = do
     method "GET"
     path "somedir"
     contentType "text/plain"
-    (path "file1" >> emptyPath >> okay "this is file1") <|> (path "file2" >> emptyPath >> okay "this is file2")
+    (path "file1" >> emptyPath >> okay' "this is file1") <|> (path "file2" >> emptyPath >> okay' "this is file2")
 
 --GET to HOST/+/#/#
 add ∷ Route Response
@@ -30,7 +30,7 @@ main = serve 31416 [
                   --Serve /srv/http/index.html at HOST/
                   serveFile "/srv/http/index.html" "/"
                   --GET to HOST/somedata.json
-                , method "GET" >> path "somedata.json" >> emptyPath >> contentType "application/json" >> okay "{\"data\": 8.7}"
+                , method "GET" >> path "somedata.json" >> emptyPath >> contentType "application/json" >> okay' "{\"data\": 8.7}"
                 , somedir
                 , add
                   --Catch all, if nothing else succeeded send a 404

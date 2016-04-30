@@ -37,13 +37,13 @@ respond ∷ Handle → [Route Response] → IO ()
 respond h rs = do
     r ← parseRequest <$> B.hGetLine h --TODO handle bad request
     case r of
-        BadRequest → executeResponse h (Response 400 "<h1>Bad Request</h1>") []
+        BadRequest → executeResponse h (Response 400 ("<h1>Bad Request</h1>" ∷ B.ByteString)) []
         otherwise → do
             hs ← filter (≠ BadHeader) ∘ map parseHeader <$> getHeaders []
             r ← runRoutes rs (r{reqHeaders=hs}, [])
             case r of
                 Just (rsp, hdrs) → executeResponse h rsp hdrs
-                Nothing → executeResponse h (Response 404 "<h1>Not Found</h1>") []
+                Nothing → executeResponse h (Response 404 ("<h1>Not Found</h1>" ∷ B.ByteString)) []
     where
         --Takes string in the format of "header name: header value" and spits out a Header value for it
         parseHeader ∷ B.ByteString → Header
@@ -66,23 +66,18 @@ respond h rs = do
 
 --Send response and headers
 executeResponse ∷ Handle → Response → [Header] → IO ()
-executeResponse h r hs = do
+executeResponse h (Response c b) hs = do
     B.hPut h "HTTP/1.1 "
-    let (c, bl) = case r of
-                Response c b → (c, show $ B.length b)
-                ResponseL c b → (c, show $ BL.length b)
     B.hPut h (B.pack $ show c)
     B.hPut h $ lookupCode c
     B.hPut h "\r\n"
     t ← B.pack ∘ flip (++) "GMT"  ∘ dropWhileEnd (≠ ' ') ∘ formatTime defaultTimeLocale rfc822DateFormat <$> getCurrentTime
     ifNotHeader "Date" ∘ B.hPut h $ B.concat ["Date: ", t ,"\r\n"]
     ifNotHeader "Server" $ B.hPut h "Server: tinysrv\r\n"
-    ifNotHeader "Content-Length" ∘ B.hPut h $ B.concat ["Content-Length: ", B.pack bl, "\r\n"]
+    ifNotHeader "Content-Length" ∘ B.hPut h $ B.concat ["Content-Length: ", B.pack ∘ show $ streamLength b, "\r\n"]
     mapM_ (B.hPut h ∘ (\(Header n v) → B.concat [n, ": ", v, "\r\n"])) hs
     B.hPut h "\r\n"
-    case r of
-        Response _ b → B.hPut h b
-        ResponseL _ b → BL.hPut h b
+    writeStream h b
     hFlush h
     hClose h
     where

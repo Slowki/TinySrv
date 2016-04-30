@@ -1,13 +1,18 @@
-{-# LANGUAGE UnicodeSyntax, OverloadedStrings #-}
+{-# LANGUAGE UnicodeSyntax, OverloadedStrings, ExistentialQuantification #-}
 module Web.TinySrv.Monad (
       Route
     , Request(..)
     , Header(..)
+    , HPutable
+    , writeStream
+    , streamLength
     , Response(..)
     , okay
-    , okayL
+    , okay'
     , notFound
-    , notFoundL
+    , notFound'
+    , badRequest
+    , badRequest'
     , header
     , contentType
     , method
@@ -32,11 +37,15 @@ import Control.Monad.State
 import Control.Monad.Trans.Maybe
 import Control.Monad (msum)
 
-import qualified Data.ByteString.Char8 as B (ByteString, pack, unpack, singleton, empty, split, concat)
-import qualified Data.ByteString.Lazy.Char8 as BL (ByteString, readFile)
+import qualified Data.ByteString.Char8 as B (ByteString, readFile, pack, unpack, singleton, empty, split, concat, hPut, length)
+import qualified Data.ByteString.Lazy.Char8 as BL (ByteString, hPut, length)
+import qualified Data.Text as T (Text, length)
+import qualified Data.Text.IO as T (hPutStr)
 import Data.List (null, dropWhileEnd)
 
 import System.Directory
+
+import System.IO (Handle)
 
 type MaybeState s a = MaybeT (StateT s IO) a
 
@@ -60,41 +69,70 @@ data Request = Request {
     } | BadRequest
     deriving Show
 
-data Response = Response {-# UNPACK #-} !Int {-# UNPACK #-} !B.ByteString
-              | ResponseL {-# UNPACK #-} !Int BL.ByteString
-    deriving Show
+class HPutable a where
+    writeStream  ∷ Handle → a → IO () -- | Usually just hPut, or a conversion to ByteString then hPut
+    streamLength ∷ a → Int            -- | Should return the length of the stream in bytes
 
+instance HPutable B.ByteString where
+    writeStream  = B.hPut
+    streamLength = B.length
+
+instance HPutable BL.ByteString where
+    writeStream  = BL.hPut
+    streamLength = fromIntegral ∘ BL.length
+
+instance HPutable T.Text where
+    writeStream  = T.hPutStr
+    streamLength = T.length
+
+data Response = ∀ a. HPutable a ⇒ Response {-# UNPACK #-} !Int a
 -- Response functions --
 
 -- | Returns HTTP 200 response
 --
 -- > serve 80 [emptyPath >> contentType "text/html" >> okay "Some response"]
-okay ∷ B.ByteString -- ^ Response body
+okay ∷ HPutable a
+     ⇒ a -- ^ Response body
      → Route Response
 okay = return ∘ Response 200
 {-# INLINE okay #-}
 
--- | Returns HTTP 200 response with a lazy 'BL.ByteString'
-okayL ∷ BL.ByteString -- ^ Response body
+-- | Returns HTTP 200 response with a ByteString for convenience when using OverloadedStrings
+okay' ∷ B.ByteString -- ^ Response body
       → Route Response
-okayL = return ∘ ResponseL 200
-{-# INLINE okayL #-}
+okay' = return ∘ Response 200
+{-# INLINE okay' #-}
 
 -- | Returns HTTP 404 response
 --
 -- > serve 80 [ emptyPath >> contentType "text/html" >> okay "Some response"
 -- >          , contentType "text/html" >> notFound "<h3>404 Not Found</h3>"
 -- >          ]
-notFound ∷ B.ByteString -- ^ Response body
+notFound ∷ HPutable a
+         ⇒ a -- ^ Response body
          → Route Response
 notFound = return ∘ Response 404
 {-# INLINE notFound #-}
 
--- | Returns HTTP 404 response with a lazy 'BL.ByteString'
-notFoundL ∷ BL.ByteString -- ^ Response body
+-- | Returns HTTP 404 response with a ByteString for convenience when using OverloadedStrings
+notFound' ∷ B.ByteString -- ^ Response body
           → Route Response
-notFoundL = return ∘ ResponseL 404
-{-# INLINE notFoundL #-}
+notFound' = return ∘ Response 404
+{-# INLINE notFound' #-}
+
+-- | Returns HTTP 400 response
+badRequest ∷ HPutable a
+         ⇒ a -- ^ Response body
+         → Route Response
+badRequest = return ∘ Response 400
+{-# INLINE badRequest #-}
+
+-- | Returns HTTP 400 response with a ByteString for convenience when using OverloadedStrings
+badRequest' ∷ B.ByteString -- ^ Response body
+          → Route Response
+badRequest' = return ∘ Response 400
+{-# INLINE badRequest' #-}
+
 
 -- Route functions --
 
@@ -147,6 +185,7 @@ pathString = get >>= return ∘ B.concat ∘ concatMap (\x → [B.singleton '/',
 -- > serve 80 [partialPath "/abc/123/" >> pathString >>= okay]
 partialPath ∷ B.ByteString → Route ()
 partialPath p = foldl (>>) (return ()) $ map path (filter (≠ B.empty) $ B.split '/' p)
+{-# INLINE partialPath #-}
 
 -- | Check that the request path matches the input
 fullPath ∷ B.ByteString → Route ()
@@ -184,14 +223,17 @@ emptyPath = get >>= guard ∘ null ∘ reqPath ∘ fst
 host ∷ B.ByteString -- ^ Hostname
      → Route ()
 host h = getHeader "Host" >>= guard ∘ (≡) (Just h)
+{-# INLINE host #-}
 
+--TODO support head requests
 -- | Serve a file
 serveFile ∷ FilePath -- ^ Path to file
           → B.ByteString -- ^ Routing path
           → Route Response
-serveFile f p = fullPath p >> liftIO (BL.readFile f) >>= okayL
+serveFile f p = fullPath p >> liftIO (B.readFile f) >>= okay
+{-# INLINE serveFile #-}
 
--- | Serve a directory
+-- | Serve a file or directory
 serveDirectory ∷ Bool -- ^ Allow file index
                → FilePath -- ^ Path to the directory
                → B.ByteString -- ^ Routing path
@@ -204,7 +246,7 @@ serveDirectory l d p = do
     de ← liftIO $ doesDirectoryExist p'
     guard (fe ∨ de ∧ l)
     if fe
-        then liftIO (BL.readFile p') >>= okayL
+        then liftIO (B.readFile p') >>= okay
         else do
             cs ← filter (≠ ".") <$> liftIO (getDirectoryContents p')
             okay $ B.concat ["<html><head><title>Index of ", urlP, "</title></head><body><h2>Index of "
