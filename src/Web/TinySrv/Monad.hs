@@ -135,10 +135,12 @@ contentType = header "Content-Type"
 method ∷ HTTPMethod -- ^ HTTP method
        → Route ()
 method m = get >>= guard ∘ (≡) m ∘ reqMethod ∘ fst
+{-# INLINE method #-}
 
 -- | Returns path stack
 pathList ∷ Route [B.ByteString]
 pathList = get >>= return ∘ reqPath ∘ fst
+{-# INLINE pathList #-}
 
 -- | Returns path stack as a string joined with \'/\'
 pathString ∷ Route B.ByteString
@@ -146,6 +148,7 @@ pathString = get >>= return ∘ addSlashToEmpty ∘ B.concat ∘ concatMap (\x �
     where
         addSlashToEmpty x | x ≡ B.empty = B.singleton '/'
                           | otherwise   = x
+{-# INLINEABLE pathString #-}
 
 -- | Checks that the top elements of the stack path match the input, and removes them
 --
@@ -171,7 +174,7 @@ path s = do
     guard ∘ not ∘ null $ reqPath r
     guard $ head (reqPath r) ≡ s
     put (r{reqPath=tail $ reqPath r}, rhs)
-{-# INLINE path #-}
+{-# INLINEABLE path #-}
 
 -- | Pop the top element off the path stack
 popPath ∷ Route B.ByteString
@@ -180,6 +183,7 @@ popPath = do
     guard ∘ not ∘ null $ reqPath r
     put (r{reqPath=tail $ reqPath r}, rhs)
     return ∘ head $ reqPath r 
+{-# INLINEABLE popPath #-}
 
 -- | Checks that the path stack is empty
 emptyPath ∷ Route ()
