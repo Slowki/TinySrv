@@ -1,5 +1,5 @@
 name:                tinysrv
-version:             0.1.1
+version:             0.1.2
 synopsis:            A small monadic webserver library
 license:             MIT
 license-file:        LICENSE
@@ -13,12 +13,13 @@ cabal-version:       >=1.10
 library
   exposed-modules:     
     Web.TinySrv
+    Web.TinySrv.Types
+    Web.TinySrv.Monad
 
   other-modules:
     Web.TinySrv.ResponseCodes
-    Web.TinySrv.Monad
   
-  other-extensions:    UnicodeSyntax, ExistentialQuantification
+  other-extensions:    UnicodeSyntax, ExistentialQuantification, OverloadedStrings, TypeSynonymInstances, FlexibleInstances
 
   build-depends:       base >=4.8 && <4.9
                      , bytestring

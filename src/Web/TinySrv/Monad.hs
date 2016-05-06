@@ -1,12 +1,6 @@
-{-# LANGUAGE UnicodeSyntax, OverloadedStrings, ExistentialQuantification #-}
+{-# LANGUAGE UnicodeSyntax, OverloadedStrings #-}
 module Web.TinySrv.Monad (
       Route
-    , Request(..)
-    , Header(..)
-    , HPutable
-    , writeStream
-    , streamLength
-    , Response(..)
     , okay
     , okay'
     , notFound
@@ -33,19 +27,15 @@ module Web.TinySrv.Monad (
 
 import Prelude.Unicode
 
+import Web.TinySrv.Types
+
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
 import Control.Monad (msum)
 
-import qualified Data.ByteString.Char8 as B (ByteString, readFile, pack, unpack, singleton, empty, split, concat, hPut, length)
-import qualified Data.ByteString.Lazy.Char8 as BL (ByteString, hPut, length)
-import qualified Data.Text as T (Text, length)
-import qualified Data.Text.IO as T (hPutStr)
+import qualified Data.ByteString.Char8 as B (ByteString, readFile, pack, unpack, singleton, empty, split, concat)
 import Data.List (null, dropWhileEnd)
-
 import System.Directory
-
-import System.IO (Handle)
 
 type MaybeState s a = MaybeT (StateT s IO) a
 
@@ -58,34 +48,7 @@ runMaybeState m s = do
 
 type Route a = MaybeState (Request, [Header]) a
 
-data Header = Header {-# UNPACK #-} !B.ByteString {-# UNPACK #-} !B.ByteString | BadHeader
-    deriving (Show, Eq)
 
-data Request = Request {
-        reqMethod ∷ B.ByteString
-      , reqPath ∷ [B.ByteString]
-      , reqArgs ∷ [(B.ByteString, B.ByteString)]
-      , reqHeaders ∷ [Header]
-    } | BadRequest
-    deriving Show
-
-class HPutable a where
-    writeStream  ∷ Handle → a → IO () -- | Usually just hPut, or a conversion to ByteString then hPut
-    streamLength ∷ a → Int            -- | Should return the length of the stream in bytes
-
-instance HPutable B.ByteString where
-    writeStream  = B.hPut
-    streamLength = B.length
-
-instance HPutable BL.ByteString where
-    writeStream  = BL.hPut
-    streamLength = fromIntegral ∘ BL.length
-
-instance HPutable T.Text where
-    writeStream  = T.hPutStr
-    streamLength = T.length
-
-data Response = ∀ a. HPutable a ⇒ Response {-# UNPACK #-} !Int a
 -- Response functions --
 
 -- | Returns HTTP 200 response
@@ -133,7 +96,6 @@ badRequest' ∷ B.ByteString -- ^ Response body
 badRequest' = return ∘ Response 400
 {-# INLINE badRequest' #-}
 
-
 -- Route functions --
 
 -- | Returns the request headers
@@ -165,7 +127,7 @@ contentType = header "Content-Type"
 {-# INLINE contentType #-}
 
 -- | Request method guard
-method ∷ B.ByteString -- ^ HTTP method
+method ∷ HTTPMethod -- ^ HTTP method
        → Route ()
 method m = get >>= guard ∘ (≡) m ∘ reqMethod ∘ fst
 

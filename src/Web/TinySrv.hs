@@ -2,12 +2,14 @@
 module Web.TinySrv (
     serve
   , module Web.TinySrv.Monad
+  , module Web.TinySrv.Types
 ) where
 
 import Prelude.Unicode
 
 import Web.TinySrv.Monad
 import Web.TinySrv.ResponseCodes
+import Web.TinySrv.Types
 
 import Data.List
 import qualified Data.ByteString.Char8 as B
@@ -87,9 +89,9 @@ executeResponse h (Response c b) hs = do
 --Parse the top line of the HTTP request
 parseRequest ∷ B.ByteString → Request
 parseRequest s
-    | isValidMethod method ∧ B.head path ≡ '/' = Request method file args undefined
+    | isValidMethod methodStr ∧ B.head path ≡ '/' = Request method file args undefined
     | otherwise = BadRequest
-    where        
+    where
         isValidMethod ∷ B.ByteString → Bool
         isValidMethod "GET"     = True
         isValidMethod "HEAD"    = True
@@ -100,7 +102,18 @@ parseRequest s
         isValidMethod "DELETE"  = True
         isValidMethod _         = False
 
-        method = B.takeWhile (≠ ' ') s
+        methodStr = B.takeWhile (≠ ' ') s
+
+        method ∷ HTTPMethod
+        method = case methodStr of
+                     "GET"     → GET
+                     "HEAD"    → HEAD
+                     "POST"    → POST
+                     "PUT"     → PUT
+                     "CONNECT" → CONNECT
+                     "TRACE"   → TRACE
+                     "DELETE"  → DELETE
+
         path = B.takeWhile (≠ ' ') ∘ B.drop 1 $ B.dropWhile (≠ ' ') s
         (file, args) = processArgs (B.split '?' path)
         
