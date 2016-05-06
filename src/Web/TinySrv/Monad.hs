@@ -20,6 +20,7 @@ module Web.TinySrv.Monad (
     , headerList
     , getHeader
     , host
+    , file
     , serveFile
     , serveDirectory
     , runRoutes
@@ -28,14 +29,18 @@ module Web.TinySrv.Monad (
 import Prelude.Unicode
 
 import Web.TinySrv.Types
+import Web.TinySrv.Mime
 
+import Control.Applicative ((<|>))
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
 import Control.Monad (msum)
 
 import qualified Data.ByteString.Char8 as B (ByteString, readFile, pack, unpack, singleton, empty, split, concat)
 import Data.List (null, dropWhileEnd)
+
 import System.Directory
+import System.FilePath
 
 type MaybeState s a = MaybeT (StateT s IO) a
 
@@ -137,7 +142,7 @@ pathList = get >>= return ∘ reqPath ∘ fst
 
 -- | Returns path stack as a string joined with \'/\'
 pathString ∷ Route B.ByteString
-pathString = get >>= return ∘ B.concat ∘ concatMap (\x → [B.singleton '/', x]) ∘ reqPath ∘ fst
+pathString = get >>= return ∘ addSlashToEmpty ∘ B.concat ∘ concatMap (\x → [B.singleton '/', x]) ∘ reqPath ∘ fst
     where
         addSlashToEmpty x | x ≡ B.empty = B.singleton '/'
                           | otherwise   = x
@@ -187,32 +192,46 @@ host ∷ B.ByteString -- ^ Hostname
 host h = getHeader "Host" >>= guard ∘ (≡) (Just h)
 {-# INLINE host #-}
 
---TODO support head requests
--- | Serve a file
+-- | Sets the Content-Type header based on the file extension, covers common file types and uses application/octet-stream for unknown extensions
+detectContentType ∷ FilePath -- ^ Path to file 
+                  → Route ()
+detectContentType f = contentType ∘ getMime ∘ B.pack $ takeExtension f 
+{-# INLINE detectContentType #-}
+
+-- | Create a response from a file
+file ∷ FilePath -- ^ Path to file
+     → Route Response
+file f = liftIO (B.readFile f) >>= okay
+{-# INLINE file #-}
+
+-- | Serve a file for the given path
 serveFile ∷ FilePath -- ^ Path to file
           → B.ByteString -- ^ Routing path
           → Route Response
-serveFile f p = fullPath p >> liftIO (B.readFile f) >>= okay
+serveFile f p = fullPath p >> (method GET <|> method HEAD) >> detectContentType f >> file f
 {-# INLINE serveFile #-}
 
 -- | Serve a file or directory
-serveDirectory ∷ Bool -- ^ Allow file index
+serveDirectory ∷ Bool -- ^ Allow file index for directories
                → FilePath -- ^ Path to the directory
                → B.ByteString -- ^ Routing path
                → Route Response
 serveDirectory l d p = do
+    fullP ← pathString
     partialPath p
+    (method GET <|> method HEAD)
     urlP ← pathString
     let p' = dropWhileEnd (≡ '/') d ++ B.unpack urlP
     fe ← liftIO $ doesFileExist p'
     de ← liftIO $ doesDirectoryExist p'
     guard (fe ∨ de ∧ l)
     if fe
-        then liftIO (B.readFile p') >>= okay
+        then detectContentType p' >> file p'
         else do
-            cs ← filter (≠ ".") <$> liftIO (getDirectoryContents p')
-            okay $ B.concat ["<html><head><title>Index of ", urlP, "</title></head><body><h2>Index of "
-                            , urlP, "</h2><hr>", B.concat ∘ map B.pack $ (\x → ["<a href=\"", x, "\">", x, "</a><br>"]) =<< cs
+            cs ← filter (\x → x ≠ "." ∧ x ≠ "..") <$> liftIO (getDirectoryContents p') >>= liftIO ∘ mapM (\x → let y = B.pack x in doesDirectoryExist (dropWhileEnd (≡ '/') d ++ B.unpack urlP ++ '/' : x) >>= \b → return $ if b then B.concat [y, "/"] else y)
+            contentType "text/html"
+            okay $ B.concat ["<html><head><title>Index of ", fullP, "</title></head><body><h2>Index of "
+                            , fullP, "</h2><hr>", B.concat $ (\x → ["<a href=\"", fullP, (if fullP ≠ "/" then "/" else "" ∷ B.ByteString), x, "\">", x, "</a><br>"]) =<< if fullP ≠ "/" then ".." : cs else cs
                             , "</body></html>"]
 
 runRoutes ∷ [Route Response] → (Request, [Header]) → IO (Maybe (Response, [Header]))

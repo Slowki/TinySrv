@@ -18,6 +18,7 @@ library
 
   other-modules:
     Web.TinySrv.ResponseCodes
+    Web.TinySrv.Mime
   
   other-extensions:    UnicodeSyntax, ExistentialQuantification, OverloadedStrings, TypeSynonymInstances, FlexibleInstances
 
@@ -30,6 +31,7 @@ library
                      , containers
                      , base-unicode-symbols
                      , directory
+                     , filepath
                      , time
 
   hs-source-dirs:      src
