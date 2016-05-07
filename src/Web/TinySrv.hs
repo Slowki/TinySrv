@@ -24,6 +24,8 @@ import Control.Monad (forever)
 import Data.Time.Clock
 import Data.Time.Format
 
+import Control.Exception.Base
+
 -- | Start the server
 serve ∷ Integer -- ^ Port
       → [Route Response] -- ^ Routes
@@ -42,10 +44,10 @@ respond h rs = do
         BadRequest → executeResponse h req (Response 400 ("<h1>Bad Request</h1>" ∷ B.ByteString)) []
         otherwise → do
             hs ← filter (≠ BadHeader) ∘ map parseHeader <$> getHeaders []
-            r ← runRoutes rs (req{reqHeaders=hs}, [])
+            r ← catch (runRoutes rs (req{reqHeaders=hs}, [])) (\e → return ∘ Just $ (Response 500 $ (B.concat ["<h2>An error occurred</h2><hr>", B.pack $ displayException (e ∷ SomeException)]), [Header "Content-Type" "text/html"]))
             case r of
                 Just (rsp, hdrs) → executeResponse h req rsp hdrs
-                Nothing → executeResponse h req (Response 404 ("<h1>Not Found</h1>" ∷ B.ByteString)) []
+                Nothing → executeResponse h req (Response 404 ("<h2>Not Found</h2>" ∷ B.ByteString)) []
     where
         --Takes string in the format of "header name: header value" and spits out a Header value for it
         parseHeader ∷ B.ByteString → Header
@@ -77,6 +79,7 @@ executeResponse h r (Response c b) hs = do
     ifNotHeader "Date" ∘ B.hPut h $ B.concat ["Date: ", t ,"\r\n"]
     ifNotHeader "Server" $ B.hPut h "Server: tinysrv\r\n"
     ifNotHeader "Content-Length" ∘ B.hPut h $ B.concat ["Content-Length: ", B.pack ∘ show $ streamLength b, "\r\n"]
+    ifNotHeader "Content-Type" $ B.hPut h "Content-Type: text/plain"
     mapM_ (B.hPut h ∘ (\(Header n v) → B.concat [n, ": ", v, "\r\n"])) hs
     B.hPut h "\r\n"
     if reqMethod r ≠ HEAD
