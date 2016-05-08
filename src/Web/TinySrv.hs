@@ -1,6 +1,7 @@
 {-# LANGUAGE UnicodeSyntax, OverloadedStrings #-}
 module Web.TinySrv (
     serve
+  , serveSync
   , module Web.TinySrv.Monad
   , module Web.TinySrv.Types
 ) where
@@ -16,25 +17,35 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
 
 import Network (withSocketsDo, listenOn, PortID(PortNumber), accept)
-import System.IO (hClose, hFlush, Handle, hIsEOF)
+import System.IO (Handle, BufferMode(NoBuffering), hSetBuffering, hClose, hFlush, hIsEOF)
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, forkFinally)
 import Control.Monad (forever)
+import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
 
 import Data.Time.Clock
 import Data.Time.Format
 
 import Control.Exception.Base
 
--- | Start the server
+-- | Runs the server in a new thread
 serve ∷ Integer -- ^ Port
       → [Route Response] -- ^ Routes
       → IO ()
-serve p rs = withSocketsDo $ do 
+serve p rs = do
+    waitVar ← newEmptyMVar
+    forkFinally (serveSync p rs) (\_ → putMVar waitVar ())
+    takeMVar waitVar
+
+-- | Starts the server in the calling thread, you probably don't need this one
+serveSync ∷ Integer -- ^ Port
+            → [Route Response] -- ^ Routes
+            → IO ()
+serveSync p rs = withSocketsDo $ do
     sock ← listenOn ∘ PortNumber $ fromIntegral p
     forever $ do
         (h, _, _) ← accept sock
-        forkIO $ respond h rs --TODO make a more efficient system
+        forkIO $ respond h rs
 
 --Handle incoming request
 respond ∷ Handle → [Route Response] → IO ()
@@ -71,25 +82,26 @@ respond h rs = do
 --Send response and headers
 executeResponse ∷ Handle → Request → Response → [Header] → IO ()
 executeResponse h r (Response c b) hs = do
+    hSetBuffering h NoBuffering
     B.hPut h "HTTP/1.1 "
     B.hPut h ∘ B.pack $ show c
     B.hPut h $ lookupCode c
     B.hPut h "\r\n"
     t ← B.pack ∘ flip (++) "GMT"  ∘ dropWhileEnd (≠ ' ') ∘ formatTime defaultTimeLocale rfc822DateFormat <$> getCurrentTime
-    ifNotHeader "Date" ∘ B.hPut h $ B.concat ["Date: ", t ,"\r\n"]
-    ifNotHeader "Server" $ B.hPut h "Server: tinysrv\r\n"
-    ifNotHeader "Content-Length" ∘ B.hPut h $ B.concat ["Content-Length: ", B.pack ∘ show $ streamLength b, "\r\n"]
-    ifNotHeader "Content-Type" $ B.hPut h "Content-Type: text/plain"
+    ifNotHeader "Date" $ B.concat ["Date: ", t ,"\r\n"]
+    ifNotHeader "Server" "Server: tinysrv\r\n"
+    ifNotHeader "Content-Length" $ B.concat ["Content-Length: ", B.pack ∘ show $ streamLength b, "\r\n"]
+    ifNotHeader "Content-Type" "Content-Type: text/html\r\n"
     mapM_ (B.hPut h ∘ (\(Header n v) → B.concat [n, ": ", v, "\r\n"])) hs
     B.hPut h "\r\n"
+    writeStream h b
     if reqMethod r ≠ HEAD
-        then writeStream h b
+        then writeStream h b >> hFlush h
         else return ()
-    hFlush h
     hClose h
     where
-        ifNotHeader ∷ B.ByteString → IO () → IO ()
-        ifNotHeader n i = if null $ filter (\(Header n' _) → n' ≡ n) hs then i else return ()
+        ifNotHeader ∷ B.ByteString → B.ByteString → IO ()
+        ifNotHeader n s = if null $ filter (\(Header n' _) → n' ≡ n) hs then B.hPut h s else return ()
 
 --Parse the top line of the HTTP request
 parseRequest ∷ B.ByteString → Request
