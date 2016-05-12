@@ -6,17 +6,17 @@ module Web.TinySrv.Types (
     , Response(..)
     , HPutable
     , writeStream
-    , streamLength
+    , contentLength
     ) where
 
 import Prelude.Unicode
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as B (hPut, length)
+import qualified Data.ByteString.Char8 as B (hPut, hGetSome, length)
 import qualified Data.ByteString.Lazy.Char8 as BL (ByteString, hPut, length)
 import qualified Data.Text as T (Text, length)
 import qualified Data.Text.IO as T (hPutStr)
-import System.IO (Handle, hPutStr)
+import System.IO (Handle, hPutStr, hIsEOF)
 
 data HTTPMethod = GET
                 | HEAD
@@ -44,20 +44,28 @@ data Response = ∀ a. HPutable a ⇒ Response {-# UNPACK #-} !Int a
 
 class HPutable a where
     writeStream  ∷ Handle → a → IO () -- | Usually just hPut, or a conversion to ByteString then hPut
-    streamLength ∷ a → Int            -- | Should return the length of the stream in bytes
+    contentLength ∷ a → Int            -- | Should return the length of the stream in bytes
 
 instance HPutable ByteString where
     writeStream  = B.hPut
-    streamLength = B.length
+    contentLength = B.length
 
 instance HPutable BL.ByteString where
     writeStream  = BL.hPut
-    streamLength = fromIntegral ∘ BL.length
+    contentLength = fromIntegral ∘ BL.length
 
 instance HPutable T.Text where
     writeStream  = T.hPutStr
-    streamLength = T.length
+    contentLength = T.length
 
 instance HPutable String where
     writeStream  = hPutStr
-    streamLength = length
+    contentLength = length
+
+instance HPutable (Integer, Handle) where
+    writeStream oh (l, ih) = do
+        e ← hIsEOF ih
+        if e
+            then return ()
+            else B.hGetSome ih 128 >>= B.hPut oh >> writeStream oh (l, ih)
+    contentLength (l, h) = fromIntegral l

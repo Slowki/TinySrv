@@ -41,7 +41,7 @@ import Data.List (null, dropWhileEnd)
 
 import System.Directory
 import System.FilePath
-
+import System.IO (openBinaryFile, hFileSize, IOMode(ReadMode))
 type MaybeState s a = MaybeT (StateT s IO) a
 
 runMaybeState ∷ MaybeState s a → s → IO (Maybe (a, s))
@@ -205,7 +205,10 @@ detectContentType f = contentType ∘ getMime ∘ B.pack $ takeExtension f
 -- | Create a response from a file
 file ∷ FilePath -- ^ Path to file
      → Route Response
-file f = liftIO (B.readFile f) >>= okay
+file f = do
+        fh ← liftIO $ openBinaryFile f ReadMode
+        fs ← liftIO $ hFileSize fh
+        okay (fs, fh)
 {-# INLINE file #-}
 
 -- | Serve a file for the given path

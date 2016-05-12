@@ -90,7 +90,7 @@ executeResponse h r (Response c b) hs = do
     t ← B.pack ∘ flip (++) "GMT"  ∘ dropWhileEnd (≠ ' ') ∘ formatTime defaultTimeLocale rfc822DateFormat <$> getCurrentTime
     ifNotHeader "Date" $ B.concat ["Date: ", t ,"\r\n"]
     ifNotHeader "Server" "Server: tinysrv\r\n"
-    ifNotHeader "Content-Length" $ B.concat ["Content-Length: ", B.pack ∘ show $ streamLength b, "\r\n"]
+    ifNotHeader "Content-Length" $ B.concat ["Content-Length: ", B.pack ∘ show $ contentLength b, "\r\n"]
     ifNotHeader "Content-Type" "Content-Type: text/html\r\n"
     mapM_ (B.hPut h ∘ (\(Header n v) → B.concat [n, ": ", v, "\r\n"])) hs
     B.hPut h "\r\n"
